@@ -17,6 +17,7 @@
 #define OP_MODE 34
 #define RTC_BATT_VOLT 36
 #define LED_PIN 19
+#define RELAY_PIN 32
 
 uint8_t secondsSinceLastDataSampling=0;
 PCF8563TimeManager  timeManager( Serial);
@@ -49,7 +50,7 @@ String display1TempURL = "http://192.168.1.117/TeleonomeServlet?formName=GetDene
 //#define ONE_WIRE_BUS 2 
 
 #define SENSOR_INPUT_1 5
-#define SENSOR_INPUT_2 4
+#define SENSOR_INPUT_3 35
 
 /********************************************************************/
 // Setup a oneWire instance to communicate with any OneWire devices  
@@ -209,8 +210,9 @@ wifiManager.start();
 
 	pinMode(RTC_BATT_VOLT, INPUT);
 	pinMode(OP_MODE, INPUT_PULLUP);
-	pinMode(SENSOR_INPUT_2, INPUT);
-	
+	pinMode(SENSOR_INPUT_3, INPUT);
+	pinMode(RELAY_PIN,OUTPUT);
+
 
   display1.showNumberDec(0, false);
   display2.showNumberDec(0, false);
@@ -223,19 +225,9 @@ void loop() {
 		portENTER_CRITICAL(&mux);
 		clockTicked=false;
 		portEXIT_CRITICAL(&mux);
-		
 		currentTimerRecord  = timeManager.now();
-  
-   
   }
-  // if(millis()-requestTempTime>800){
-  //   float temp = sensors.getTempCByIndex(0);
-  //   if(temp>0){
-  //     panchoTankFlowData.flowRate=temp;
-  //     //Serial.println(temp);
-  //     int tempi = (int)(temp*100);
-  //     display1.showNumberDecEx(tempi, (0x80 >> 1), false);
-  //   }
+
     
   if(currentTimerRecord.second==4 || currentTimerRecord.second==19|| currentTimerRecord.second==34|| currentTimerRecord.second==49){
     leds[1] = CRGB(0, 255, 0);
@@ -270,6 +262,8 @@ void loop() {
      leds[2] = CRGB(0, 255, 0);
      leds[3] = CRGB(0, 0, 0);
     FastLED.show();
+  //  digitalWrite(RELAY_PIN,HIGH);
+
   }else if(currentTimerRecord.second==12 || currentTimerRecord.second==27|| currentTimerRecord.second==41 || currentTimerRecord.second==56){
      leds[1] = CRGB(0, 255, 0);
      leds[2] = CRGB(0, 255, 0);
@@ -279,9 +273,10 @@ void loop() {
         SEG_A | SEG_F| SEG_G | SEG_C | SEG_D,  // S
           SEG_G | SEG_C | SEG_D | SEG_E  // o
       };
-      soilMoistureValue = analogRead(SENSOR_INPUT_2);
+      soilMoistureValue = analogRead(SENSOR_INPUT_3);
       display1.setSegments(so, 2, 0);
       display2.showNumberDecEx(soilMoistureValue, false);
+   //   digitalWrite(RELAY_PIN,LOW);
   }
   if(currentTimerRecord.second==15 || currentTimerRecord.second==30|| currentTimerRecord.second==45){
      
