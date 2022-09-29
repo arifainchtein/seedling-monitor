@@ -26,7 +26,7 @@ uint8_t secondsSinceLastDataSampling=0;
 PCF8563TimeManager  timeManager( Serial);
 GeneralFunctions generalFunctions;
 Esp32SecretManager secretManager(timeManager);
-
+bool readDHT=false;
 PanchoConfigData panchoConfigData;
 PanchoTankFlowData panchoTankFlowData;
 SeedlingMonitoringWifiManager wifiManager(Serial, timeManager, secretManager, panchoTankFlowData,panchoConfigData);
@@ -174,6 +174,7 @@ bool getTemperature() {
 void setup() {
   Serial.begin(115200 );
   dht.setup(dhtPin, DHTesp::DHT22);
+
 	Serial.println("DHT initiated");
   FastLED.addLeds<WS2812, LED_PIN, GRB>(leds, NUM_LEDS);
   for(int i=0;i<NUM_LEDS;i++){
@@ -253,6 +254,8 @@ void setup() {
   display1.showNumberDec(0, false);
   display2.showNumberDec(0, false);
   requestTempTime = millis(); 
+  getTemperature();
+  readDHT=true;
 }
 
 void loop() {
@@ -264,23 +267,22 @@ void loop() {
 		currentTimerRecord  = timeManager.now();
   }
 
-
-
     
-  if(currentTimerRecord.second==10){
-    leds[1] = CRGB(0, 255, 0);
-    leds[2] = CRGB(0, 0, 0);
-    leds[3] = CRGB(0, 0, 0);
+if(currentTimerRecord.second==0){
+  for(int i=2;i<NUM_LEDS;i++){
+      leds[i] = CRGB(0, 0, 0);
+    }
+    readDHT=false;
+    leds[2] = CRGB(0, 255, 0);
     FastLED.show();
     const uint8_t st[] = {
        SEG_A | SEG_F | SEG_G | SEG_C| SEG_D,//S
      SEG_D | SEG_E | SEG_F | SEG_G  // t
     };
-
      sensors.requestTemperatures(); // Send the command to get temperature readings
     requestTempTime = millis(); 
     delay(100);
-    display1.clear();
+   
     display1.setSegments(st, 2, 0);
     seedlingMonitorData.soilTemperature = sensors.getTempCByIndex(0);
     if(seedlingMonitorData.soilTemperature>0){
@@ -288,9 +290,8 @@ void loop() {
       display2.showNumberDecEx(tempi, (0x80 >> 1), false);
     }
  
-  }else if(currentTimerRecord.second==20){
-     leds[1] = CRGB(0, 255, 0);
-     leds[2] = CRGB(0, 255, 0);
+  }else if(currentTimerRecord.second==10){
+     
      leds[3] = CRGB(0, 255, 0);
      FastLED.show();
       const uint8_t sh[] = {
@@ -300,40 +301,46 @@ void loop() {
       seedlingMonitorData.soilMoisture = analogRead(SENSOR_INPUT_3);
       display1.setSegments(sh, 2, 0);
       display2.showNumberDecEx(seedlingMonitorData.soilMoisture, false);
-  }else if(currentTimerRecord.second==30){
-    leds[1] = CRGB(0, 255, 0);
-    leds[2] = CRGB(0, 255, 0);
-    leds[3] = CRGB(0, 0, 0);
+      readDHT=false;
+  }else if(currentTimerRecord.second==20 && !readDHT ){
+    leds[4] = CRGB(0, 255, 0);
     FastLED.show();
-    getTemperature();
-   
+    if( !readDHT){
+        getTemperature();
+        readDHT=true;
+    }
+  
     const uint8_t t[] = {
         SEG_D | SEG_E | SEG_F | SEG_G
       };
-      seedlingMonitorData.soilMoisture = analogRead(SENSOR_INPUT_3);
-      display1.clear();
+      
       display1.setSegments(t, 1, 0);
-      display2.showNumberDecEx(seedlingMonitorData.greenhouseTemp, false);
-  }else if(currentTimerRecord.second==40){
-    leds[1] = CRGB(0, 255, 0);
-    leds[2] = CRGB(0, 255, 0);
-    leds[3] = CRGB(0, 0, 0);
-    FastLED.show();
-    getTemperature();
-    
-    const uint8_t t[] = {
-        SEG_D | SEG_E | SEG_F | SEG_G
-      };
-      seedlingMonitorData.soilMoisture = analogRead(SENSOR_INPUT_3);
-      display1.clear();
-      display1.setSegments(t, 1, 0);
-      display2.showNumberDecEx(seedlingMonitorData.greenhouseHum, false);
-  }else if(currentTimerRecord.second==50){
-    for(int i=1;i<NUM_LEDS;i++){
-        leds[i] = CRGB(255, 0, 255);
-      }
-      FastLED.show();
+      
+      int tempi = (int)(seedlingMonitorData.greenhouseTemp*100);
+      display2.showNumberDecEx(tempi, (0x80 >> 1), false);
 
+  }else if(currentTimerRecord.second==30){
+    leds[5] = CRGB(0, 255, 0);
+    FastLED.show();
+    
+    const uint8_t hu[] = {
+        SEG_B| SEG_C | SEG_E | SEG_F | SEG_G,
+        SEG_B| SEG_C | SEG_E | SEG_F | SEG_D
+      };
+      display1.setSegments(hu, 2, 0);
+      int hi = (int)(seedlingMonitorData.greenhouseHum*100);
+      display2.showNumberDecEx(hi, (0x80 >> 1), false);
+      
+      
+  }else if(currentTimerRecord.second==40){
+    leds[6] = CRGB(0, 255, 0);
+    FastLED.show();
+    const uint8_t tr[] = {
+     SEG_F | SEG_E| SEG_D| SEG_G ,  // t
+      SEG_G | SEG_E //r
+      }; 
+  
+    display1.setSegments(tr, 2, 0);
     int value1 = processDisplayValue(display1TempURL,&displayData);
     panchoTankFlowData.flowRate2=value1/100.0;
     if(displayData.dp>0){
@@ -342,24 +349,31 @@ void loop() {
       display2.showNumberDec(value1, false);
     }
     delay(100);
-    const uint8_t tr[] = {
-     SEG_F | SEG_E| SEG_D| SEG_G ,  // t
-      SEG_G | SEG_E //r
-      }; 
-  
-    display1.setSegments(tr, 2, 0);
-    for(int i=1;i<NUM_LEDS;i++){
-        leds[i] = CRGB(0, 0, 0);
-      }
-      FastLED.show();
-  }else if(currentTimerRecord.second==55){
+  }else if(currentTimerRecord.second==50){
+    leds[7] = CRGB(0, 255, 0);
+    FastLED.show();
+
     
     const uint8_t hi[] = {
      SEG_F | SEG_E| SEG_B| SEG_C | SEG_G ,  // H
       SEG_F | SEG_E  //////////////// I
       }; // r
     display1.setSegments(hi, 2, 0);
-    display2.showNumberDecEx(seedlingMonitorData.heatIndex, false);
+
+    int hei = (int)(seedlingMonitorData.heatIndex*100);
+    display2.showNumberDecEx(hei, (0x80 >> 1), false);
+  }else if(currentTimerRecord.second==55){
+    //leds[7] = CRGB(0, 255, 0);
+   // FastLED.show();
+    const uint8_t de[] = {
+     SEG_B | SEG_C| SEG_D| SEG_E | SEG_G ,  // d
+      SEG_F | SEG_E | SEG_A| SEG_D | SEG_G     //// E
+
+      }; // r
+    display1.setSegments(de, 2, 0);
+
+    int dei = (int)(seedlingMonitorData.dewPoint*100);
+    display2.showNumberDecEx(dei, (0x80 >> 1), false);
   }
 
   if( Serial.available() != 0) {
