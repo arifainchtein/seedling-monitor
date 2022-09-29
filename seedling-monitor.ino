@@ -9,6 +9,9 @@
 #include <OneWire.h> 
 #include <DallasTemperature.h>
 #include <PanchoTankFlowData.h>
+#include "DHTesp.h" 
+#define dhtPin 4     // what pin we're connected to
+
 #define UI_CLK 23
 #define UI1_DAT 26
 #define UI2_DAT 25
@@ -18,7 +21,7 @@
 #define RTC_BATT_VOLT 36
 #define LED_PIN 19
 #define RELAY_PIN 32
-
+DHTesp dht;
 uint8_t secondsSinceLastDataSampling=0;
 PCF8563TimeManager  timeManager( Serial);
 GeneralFunctions generalFunctions;
@@ -136,9 +139,31 @@ int processDisplayValue(String displayURL,struct DisplayData *displayData ){
       return value;
 }
 
+bool getTemperature() {
+	// Reading temperature for humidity takes about 250 milliseconds!
+	// Sensor readings may also be up to 2 seconds 'old' (it's a very slow sensor)
+  TempAndHumidity newValues = dht.getTempAndHumidity();
+	// Check if any reads failed and exit early (to try again).
+	if (dht.getStatus() != 0) {
+		Serial.println("DHT11 error status: " + String(dht.getStatusString()));
+		return false;
+	}
+float heatIndex, dewPoint
+  greenhouseTemp = ewValues.temperature;
+  greenhoiu
+	 heatIndex = dht.computeHeatIndex(newValues.temperature, newValues.humidity);
+   dewPoint = dht.computeDewPoint(newValues.temperature, newValues.humidity);
+  //float cr = dht.getComfortRatio(cf, newValues.temperature, newValues.humidity);
+
+
+
+  Serial.println(" T:" + String(newValues.temperature) + " H:" + String(newValues.humidity) + " I:" + String(heatIndex) + " D:" + String(dewPoint) );
+	return true;
+}
 void setup() {
   Serial.begin(115200 );
-
+dht.setup(dhtPin, DHTesp::DHT22);
+	Serial.println("DHT initiated");
 FastLED.addLeds<WS2812, LED_PIN, GRB>(leds, NUM_LEDS);
  for(int i=0;i<NUM_LEDS;i++){
      leds[i] = CRGB(255, 255, 0);
@@ -263,6 +288,7 @@ void loop() {
      leds[3] = CRGB(0, 0, 0);
     FastLED.show();
   //  digitalWrite(RELAY_PIN,HIGH);
+   getTemperature();
 
   }else if(currentTimerRecord.second==12 || currentTimerRecord.second==27|| currentTimerRecord.second==41 || currentTimerRecord.second==56){
      leds[1] = CRGB(0, 255, 0);
@@ -320,7 +346,7 @@ void loop() {
 			Serial.println(F("Ok-Ping"));
     }else if(command.startsWith("ConfigWifiSTA")){
       //ConfigWifiSTA#ssid#password
-      //ConfigWifiSTA#MainRouter24##Build4SolarPowerVisualizer#
+      //ConfigWifiSTA#MainRouter24##SeedlingMoinitor#
       String ssid = generalFunctions.getValue(command, '#', 1);
       String password = generalFunctions.getValue(command, '#', 2);
       String hostname = generalFunctions.getValue(command, '#', 3);
