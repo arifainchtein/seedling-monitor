@@ -44,7 +44,7 @@ volatile bool clockTicked=false;
 #define UNIQUE_ID_SIZE 8
 #define RTC_CLK_OUT 18
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
-int soilMoistureValue;
+
 //String display1TempURL = "http://Tlaloc.local/TeleonomeServlet?formName=GetDeneWordValueByIdentity&identity=Tlaloc:Purpose:Sensor%20Data:Indoor%20Temperature:Indoor%20Temperature%20Data";
 String display1TempURL = "http://192.168.1.117/TeleonomeServlet?formName=GetDeneWordValueByIdentity&identity=Tlaloc:Purpose:Sensor%20Data:Indoor%20Temperature:Indoor%20Temperature%20Data";
 
@@ -63,15 +63,28 @@ OneWire oneWire(SENSOR_INPUT_1);
 // Pass our oneWire reference to Dallas Temperature. 
 DallasTemperature sensors(&oneWire);
 
+struct SeedlingMonitorData{
+	float heatIndex=0;
+	float dewPoint=0;
+  float greenhouseTemp=0.0;
+  float greenhouseHum=0.0;
+  int soilMoisture;
+  float soilTemperature;
+} seedlingMonitorData;
 
-//
-// interrupt functions
-//
+
+
 
 struct DisplayData{
       int value;
       int dp;
     } displayData;
+    
+//
+// interrupt functions
+//
+
+
 
 void IRAM_ATTR clockTick() {
 	portENTER_CRITICAL_ISR(&mux);
@@ -139,6 +152,8 @@ int processDisplayValue(String displayURL,struct DisplayData *displayData ){
       return value;
 }
 
+
+
 bool getTemperature() {
 	// Reading temperature for humidity takes about 250 milliseconds!
 	// Sensor readings may also be up to 2 seconds 'old' (it's a very slow sensor)
@@ -148,27 +163,23 @@ bool getTemperature() {
 		Serial.println("DHT11 error status: " + String(dht.getStatusString()));
 		return false;
 	}
-float heatIndex, dewPoint
-  greenhouseTemp = ewValues.temperature;
-  greenhoiu
-	 heatIndex = dht.computeHeatIndex(newValues.temperature, newValues.humidity);
-   dewPoint = dht.computeDewPoint(newValues.temperature, newValues.humidity);
-  //float cr = dht.getComfortRatio(cf, newValues.temperature, newValues.humidity);
 
-
-
-  Serial.println(" T:" + String(newValues.temperature) + " H:" + String(newValues.humidity) + " I:" + String(heatIndex) + " D:" + String(dewPoint) );
+  seedlingMonitorData.greenhouseTemp=newValues.temperature;
+  seedlingMonitorData.greenhouseHum=newValues.humidity;
+  seedlingMonitorData.heatIndex = dht.computeHeatIndex(newValues.temperature, newValues.humidity);
+  seedlingMonitorData.dewPoint = dht.computeDewPoint(newValues.temperature, newValues.humidity);
+  Serial.println(" T:" + String(newValues.temperature) + " H:" + String(newValues.humidity) + " I:" + String(seedlingMonitorData.heatIndex) + " D:" + String(seedlingMonitorData.dewPoint) );
 	return true;
 }
 void setup() {
   Serial.begin(115200 );
-dht.setup(dhtPin, DHTesp::DHT22);
+  dht.setup(dhtPin, DHTesp::DHT22);
 	Serial.println("DHT initiated");
-FastLED.addLeds<WS2812, LED_PIN, GRB>(leds, NUM_LEDS);
- for(int i=0;i<NUM_LEDS;i++){
+  FastLED.addLeds<WS2812, LED_PIN, GRB>(leds, NUM_LEDS);
+  for(int i=0;i<NUM_LEDS;i++){
      leds[i] = CRGB(255, 255, 0);
   }
-   FastLED.show();
+  FastLED.show();
   // put your setup code here, to run once:
   display1.setBrightness(0x0f);
   display2.setBrightness(0x0f);
@@ -184,7 +195,7 @@ FastLED.addLeds<WS2812, LED_PIN, GRB>(leds, NUM_LEDS);
   sensors.begin();
 
 
-wifiManager.start();
+  wifiManager.start();
   String ssid = wifiManager.getSSID();
   String ipAddress="";
   if(ssid==""){
@@ -253,60 +264,71 @@ void loop() {
 		currentTimerRecord  = timeManager.now();
   }
 
+
+
     
-  if(currentTimerRecord.second==4 || currentTimerRecord.second==19|| currentTimerRecord.second==34|| currentTimerRecord.second==49){
+  if(currentTimerRecord.second==10){
     leds[1] = CRGB(0, 255, 0);
     leds[2] = CRGB(0, 0, 0);
     leds[3] = CRGB(0, 0, 0);
     FastLED.show();
-    const uint8_t te[] = {
-     SEG_D | SEG_E | SEG_F | SEG_G,  // t
-      SEG_A | SEG_D | SEG_E | SEG_F| SEG_G  // E
+    const uint8_t st[] = {
+       SEG_A | SEG_F | SEG_G | SEG_C| SEG_D,//S
+     SEG_D | SEG_E | SEG_F | SEG_G  // t
     };
 
      sensors.requestTemperatures(); // Send the command to get temperature readings
     requestTempTime = millis(); 
     delay(100);
-    /********************************************************************/
-    //Serial.print("Temperature is: "); 
-   
-
-  display1.setSegments(te, 2, 0);
- // if(millis()-requestTempTime>800){
-    float temp = sensors.getTempCByIndex(0);
-    if(temp>0){
-      panchoTankFlowData.flowRate=temp;
-      //Serial.println(temp);
-      int tempi = (int)(temp*100);
+    display1.clear();
+    display1.setSegments(st, 2, 0);
+    seedlingMonitorData.soilTemperature = sensors.getTempCByIndex(0);
+    if(seedlingMonitorData.soilTemperature>0){
+      int tempi = (int)(seedlingMonitorData.soilTemperature*100);
       display2.showNumberDecEx(tempi, (0x80 >> 1), false);
     }
- // }
-
-  }else if(currentTimerRecord.second==8 || currentTimerRecord.second==23|| currentTimerRecord.second==38 || currentTimerRecord.second==52){
-     leds[1] = CRGB(0, 255, 0);
-     leds[2] = CRGB(0, 255, 0);
-     leds[3] = CRGB(0, 0, 0);
-    FastLED.show();
-  //  digitalWrite(RELAY_PIN,HIGH);
-   getTemperature();
-
-  }else if(currentTimerRecord.second==12 || currentTimerRecord.second==27|| currentTimerRecord.second==41 || currentTimerRecord.second==56){
+ 
+  }else if(currentTimerRecord.second==20){
      leds[1] = CRGB(0, 255, 0);
      leds[2] = CRGB(0, 255, 0);
      leds[3] = CRGB(0, 255, 0);
      FastLED.show();
-      const uint8_t so[] = {
+      const uint8_t sh[] = {
         SEG_A | SEG_F| SEG_G | SEG_C | SEG_D,  // S
-          SEG_G | SEG_C | SEG_D | SEG_E  // o
+          SEG_G | SEG_B | SEG_C | SEG_E | SEG_F // H
       };
-      soilMoistureValue = analogRead(SENSOR_INPUT_3);
-      display1.setSegments(so, 2, 0);
-      display2.showNumberDecEx(soilMoistureValue, false);
-   //   digitalWrite(RELAY_PIN,LOW);
-  }
-  if(currentTimerRecord.second==15 || currentTimerRecord.second==30|| currentTimerRecord.second==45){
-     
-
+      seedlingMonitorData.soilMoisture = analogRead(SENSOR_INPUT_3);
+      display1.setSegments(sh, 2, 0);
+      display2.showNumberDecEx(seedlingMonitorData.soilMoisture, false);
+  }else if(currentTimerRecord.second==30){
+    leds[1] = CRGB(0, 255, 0);
+    leds[2] = CRGB(0, 255, 0);
+    leds[3] = CRGB(0, 0, 0);
+    FastLED.show();
+    getTemperature();
+   
+    const uint8_t t[] = {
+        SEG_D | SEG_E | SEG_F | SEG_G
+      };
+      seedlingMonitorData.soilMoisture = analogRead(SENSOR_INPUT_3);
+      display1.clear();
+      display1.setSegments(t, 1, 0);
+      display2.showNumberDecEx(seedlingMonitorData.greenhouseTemp, false);
+  }else if(currentTimerRecord.second==40){
+    leds[1] = CRGB(0, 255, 0);
+    leds[2] = CRGB(0, 255, 0);
+    leds[3] = CRGB(0, 0, 0);
+    FastLED.show();
+    getTemperature();
+    
+    const uint8_t t[] = {
+        SEG_D | SEG_E | SEG_F | SEG_G
+      };
+      seedlingMonitorData.soilMoisture = analogRead(SENSOR_INPUT_3);
+      display1.clear();
+      display1.setSegments(t, 1, 0);
+      display2.showNumberDecEx(seedlingMonitorData.greenhouseHum, false);
+  }else if(currentTimerRecord.second==50){
     for(int i=1;i<NUM_LEDS;i++){
         leds[i] = CRGB(255, 0, 255);
       }
@@ -320,22 +342,24 @@ void loop() {
       display2.showNumberDec(value1, false);
     }
     delay(100);
-    
-
-    
     const uint8_t tr[] = {
      SEG_F | SEG_E| SEG_D| SEG_G ,  // t
-      SEG_G | SEG_E
-      }; // r
+      SEG_G | SEG_E //r
+      }; 
   
-   
     display1.setSegments(tr, 2, 0);
-
-    
     for(int i=1;i<NUM_LEDS;i++){
         leds[i] = CRGB(0, 0, 0);
       }
       FastLED.show();
+  }else if(currentTimerRecord.second==55){
+    
+    const uint8_t hi[] = {
+     SEG_F | SEG_E| SEG_B| SEG_C | SEG_G ,  // H
+      SEG_F | SEG_E  //////////////// I
+      }; // r
+    display1.setSegments(hi, 2, 0);
+    display2.showNumberDecEx(seedlingMonitorData.heatIndex, false);
   }
 
   if( Serial.available() != 0) {
