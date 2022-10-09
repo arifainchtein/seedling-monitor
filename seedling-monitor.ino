@@ -218,12 +218,16 @@ void setup() {
 
    display1.setSegments(lora, 4, 0);
 
+for(int i=0;i<NUM_LEDS;i++){
+     leds[i] = CRGB(0, 0, 0);
+  }
+  FastLED.show();
+
   if (true){//!LoRa.begin(433E6)) {
     Serial.println("Starting LoRa failed!");
-    while (1)
-      ;
+    
     leds[1] = CRGB(255, 0, 0);
-    display2.setSegments(off, 2, 0);
+    display2.setSegments(off, 3, 0);
   } else {
     Serial.println("Starting LoRa worked!");
     leds[1] = CRGB(0, 0, 255);
