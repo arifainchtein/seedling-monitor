@@ -26,7 +26,7 @@
 
 bool loraActive = false;
 bool opmode = false;
-
+String serialNumber;
 DHTesp dht;
 uint8_t secondsSinceLastDataSampling=0;
 PCF8563TimeManager  timeManager( Serial);
@@ -70,7 +70,7 @@ String display1TempURL = "http://192.168.1.117/TeleonomeServlet?formName=GetDene
 OneWire oneWire(SENSOR_INPUT_1); 
 /********************************************************************/
 // Pass our oneWire reference to Dallas Temperature. 
-DallasTemperature sensors(&oneWire);
+DallasTemperature tempSensor(&oneWire);
 
 
 
@@ -195,7 +195,19 @@ void setup() {
   timeManager.start();
 	timeManager.PCF8563osc1Hz();
 
-  sensors.begin();
+ tempSensor.begin();
+  uint8_t address[8];
+  tempSensor.getAddress(address, 0);
+ for (  uint8_t i = 0; i < 8; i++){
+    //if (address[i] < 16) Serial.print("0");
+      serialNumber += String(address[i], HEX);
+ }
+
+  Serial.print("serial number:");
+  Serial.println(serialNumber);
+
+
+  tempSensor.begin();
 
 
  const uint8_t lora[] = {
@@ -238,53 +250,44 @@ for(int i=0;i<NUM_LEDS;i++){
   FastLED.show();
 
   wifiManager.start();
+   bool stationmode = wifiManager.getStationMode();
+  Serial.print("Starting wifi stationmode=");
+  Serial.println(stationmode);
+
+//  serialNumber = wifiManager.getMacAddress();
+  wifiManager.setSerialNumber(serialNumber);
+  wifiManager.setLora(loraActive);
   String ssid = wifiManager.getSSID();
   String ipAddress="";
-  if(ssid==""){
-      for(int i=0;i<NUM_LEDS;i++){
-			leds[i] = CRGB(255, 0, 0);
-		}
-		FastLED.show();
-    wifiActive=false;
-  }else{
-    ipAddress = wifiManager.getIpAddress();  
-    if(ipAddress=="0.0.0.0"){
-      for(int i=0;i<NUM_LEDS;i++){
-        leds[i] = CRGB(0, 255, 255);
+    uint8_t ipi;
+  if (stationmode) {
+     ipAddress = wifiManager.getIpAddress();
+    Serial.print("ipaddress=");
+    Serial.println(ipAddress);
+    
+    if (ipAddress == ""|| ipAddress == "0.0.0.0") {
+      for (int i = 0; i < 4; i++) {
+        leds[i] = CRGB(255, 0, 0);
+      }
+      for (int i = 4; i < 8; i++) {
+        leds[i] = CRGB(255, 255, 0);
       }
       FastLED.show();
-      wifiManager.restartWifi();
-      ipAddress = wifiManager.getIpAddress();
-      if(ipAddress=="0.0.0.0"){
-        for(int i=0;i<NUM_LEDS;i++){
-          leds[i] = CRGB(255, 0, 0);
-        }
-      }else{
-        for(int i=0;i<NUM_LEDS;i++){
-          leds[i] = CRGB(0, 0, 0);
-        }
-        leds[0] = CRGB(0, 0, 255);
-        wifiActive=true;
-      }
-      FastLED.show();
-    }else{
-      for(int i=0;i<NUM_LEDS;i++){
-        leds[i] = CRGB(0, 0, 0);
-      }
-      leds[0] = CRGB(0, 0, 255);
-      wifiActive=true;
-      FastLED.show();
+      setApMode();
+      
+    } else {
+      setStationMode(ipAddress);
     }
+  } else {
+     setApMode();
   }
   
-
-
-    uint8_t ipi;
     for(int i=0;i<4;i++){
       ipi = GeneralFunctions::getValue(ipAddress, '.', i).toInt();
       display1.showNumberDec(ipi, false); 
       delay(1000);
     }
+  
 
 	pinMode(RTC_BATT_VOLT, INPUT);
 	pinMode(OP_MODE, INPUT_PULLUP);
@@ -328,12 +331,12 @@ if(currentTimerRecord.second==0){
        SEG_A | SEG_F | SEG_G | SEG_C| SEG_D,//S
      SEG_D | SEG_E | SEG_F | SEG_G  // t
     };
-     sensors.requestTemperatures(); // Send the command to get temperature readings
+     tempSensor.requestTemperatures(); // Send the command to get temperature readings
     requestTempTime = millis(); 
     delay(100);
    
     display1.setSegments(st, 2, 0);
-    seedlingMonitorData.soilTemperature = sensors.getTempCByIndex(0);
+    seedlingMonitorData.soilTemperature = tempSensor.getTempCByIndex(0);
     if(seedlingMonitorData.soilTemperature>0){
       int tempi = (int)(seedlingMonitorData.soilTemperature*100);
       display2.showNumberDecEx(tempi, (0x80 >> 1), false);
@@ -447,5 +450,63 @@ if(currentTimerRecord.second==0){
       Serial.println("Ok-ConfigWifiSTA");
 
 		}
+  }
+}
+
+
+
+void setApMode() {
+
+  leds[0] = CRGB(0, 0, 255);
+  FastLED.show();
+  Serial.println("settting AP mode");
+  //
+  // set ap mode
+  //
+//  wifiManager.configWifiAP("PanchoTankFlowV1", "", "PanchoTankFlowV1");
+  String apAddress = wifiManager.getApAddress();
+   Serial.println("settting AP mode, address ");
+    Serial.println(apAddress);
+  const uint8_t ap[] = {
+    SEG_F | SEG_G | SEG_A | SEG_B | SEG_C | SEG_E,  // A
+    SEG_F | SEG_G | SEG_A | SEG_B | SEG_E           // P
+  };
+  display1.setSegments(ap, 2, 0);
+  delay(1000);
+  uint8_t ipi;
+  
+  for (int i = 0; i < 4; i++) {
+    ipi = GeneralFunctions::getValue(apAddress, '.', i).toInt();
+    display1.showNumberDec(ipi, false);
+    delay(1000);
+  }
+  for (int i = 2; i < NUM_LEDS; i++) {
+    leds[i] = CRGB(0, 0, 0);
+  }
+  leds[0] = CRGB(0, 255, 0);
+  if (loraActive) {
+    leds[1] = CRGB(0, 0, 255);
+  } else {
+    leds[1] = CRGB(255, 0, 0);
+  }
+
+  FastLED.show();
+}
+
+void setStationMode(String ipAddress) {
+  wifiActive=true;
+Serial.println("settting Station mode, address ");
+    Serial.println(ipAddress);
+  leds[0] = CRGB(0, 0, 255);
+  FastLED.show();
+  const uint8_t ip[] = {
+    SEG_F | SEG_E,                         // I
+    SEG_F | SEG_G | SEG_A | SEG_B | SEG_E  // P
+  };
+  uint8_t ipi;
+  for (int i = 0; i < 4; i++) {
+    ipi = GeneralFunctions::getValue(ipAddress, '.', i).toInt();
+    display1.showNumberDec(ipi, false);
+    delay(1000);
   }
 }
