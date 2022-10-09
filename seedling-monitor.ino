@@ -8,10 +8,12 @@
 #include <TM1637Display.h>
 #include <OneWire.h> 
 #include <DallasTemperature.h>
-#include <PanchoTankFlowData.h>
 #include "DHTesp.h" 
-#define dhtPin 4     // what pin we're connected to
+#include <SeedlingMonitoringData.h>
 
+
+
+#define dhtPin 4     
 #define UI_CLK 23
 #define UI1_DAT 26
 #define UI2_DAT 25
@@ -21,15 +23,20 @@
 #define RTC_BATT_VOLT 36
 #define LED_PIN 19
 #define RELAY_PIN 32
+
+bool loraActive = false;
+bool opmode = false;
+
 DHTesp dht;
 uint8_t secondsSinceLastDataSampling=0;
 PCF8563TimeManager  timeManager( Serial);
 GeneralFunctions generalFunctions;
 Esp32SecretManager secretManager(timeManager);
 
-PanchoConfigData panchoConfigData;
-PanchoTankFlowData panchoTankFlowData;
-SeedlingMonitoringWifiManager wifiManager(Serial, timeManager, secretManager, panchoTankFlowData,panchoConfigData);
+SeedlingMonitorData seedlingMonitorData;
+
+
+SeedlingMonitoringWifiManager wifiManager(Serial, timeManager, secretManager,seedlingMonitorData);
 bool wifiActive=false;
 bool apActive=false;
 long requestTempTime=0;
@@ -63,14 +70,7 @@ OneWire oneWire(SENSOR_INPUT_1);
 // Pass our oneWire reference to Dallas Temperature. 
 DallasTemperature sensors(&oneWire);
 
-struct SeedlingMonitorData{
-	float heatIndex=0;
-	float dewPoint=0;
-  float greenhouseTemp=0.0;
-  float greenhouseHum=0.0;
-  int soilMoisture;
-  float soilTemperature;
-} seedlingMonitorData;
+
 
 
 
@@ -195,6 +195,41 @@ void setup() {
   sensors.begin();
 
 
+ const uint8_t lora[] = {
+    SEG_F | SEG_E | SEG_D,          // L
+    SEG_E | SEG_G | SEG_C | SEG_D , // o
+    SEG_E | SEG_G  , // r
+    SEG_A | SEG_B | SEG_C | SEG_E | SEG_F| SEG_G  // A
+  };
+
+  const uint8_t on[] = {
+    SEG_E | SEG_G | SEG_C | SEG_D,  // o
+    SEG_C | SEG_E | SEG_G          // n    
+  };
+  
+   const uint8_t off[] = {
+    SEG_E | SEG_G | SEG_C | SEG_D,  // o
+     SEG_A | SEG_G | SEG_E | SEG_F,  // F
+     SEG_A | SEG_G | SEG_E | SEG_F  // F
+  };
+
+   display1.setSegments(lora, 4, 0);
+
+  if (true){//!LoRa.begin(433E6)) {
+    Serial.println("Starting LoRa failed!");
+    while (1)
+      ;
+    leds[1] = CRGB(255, 0, 0);
+    display2.setSegments(off, 2, 0);
+  } else {
+    Serial.println("Starting LoRa worked!");
+    leds[1] = CRGB(0, 0, 255);
+    display2.setSegments(on, 2, 0);
+    loraActive = true;
+  }
+  delay(2000);
+  FastLED.show();
+
   wifiManager.start();
   String ssid = wifiManager.getSSID();
   String ipAddress="";
@@ -250,6 +285,14 @@ void setup() {
 	pinMode(RELAY_PIN,OUTPUT);
 
 
+  opmode = digitalRead(OP_MODE);
+  seedlingMonitorData.opMode = opmode;
+  if(loraActive){
+    leds[1] = CRGB(0, 0, 255);
+  }else{
+    leds[1] = CRGB(0, 0,0);    
+  }
+
   display1.showNumberDec(0, false);
   display2.showNumberDec(0, false);
   requestTempTime = millis(); 
@@ -264,7 +307,7 @@ void loop() {
 		currentTimerRecord  = timeManager.now();
   }
 
-
+  seedlingMonitorData.secondsTime=timeManager.getCurrentTimeInSeconds(currentTimerRecord);
 
     
   if(currentTimerRecord.second==10){
@@ -335,7 +378,7 @@ void loop() {
       FastLED.show();
 
     int value1 = processDisplayValue(display1TempURL,&displayData);
-    panchoTankFlowData.flowRate2=value1/100.0;
+    seedlingMonitorData.roomTemperature=value1/100.0;
     if(displayData.dp>0){
       display2.showNumberDecEx(value1, (0x80 >> displayData.dp), false);
     }else{
