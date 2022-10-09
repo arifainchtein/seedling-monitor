@@ -23,7 +23,7 @@
 #define RTC_BATT_VOLT 36
 #define LED_PIN 19
 #define RELAY_PIN 32
-
+int delayTime=10;
 bool loraActive = false;
 bool opmode = false;
 String serialNumber;
@@ -32,7 +32,7 @@ uint8_t secondsSinceLastDataSampling=0;
 PCF8563TimeManager  timeManager( Serial);
 GeneralFunctions generalFunctions;
 Esp32SecretManager secretManager(timeManager);
-
+bool isHost=true;
 SeedlingMonitorData seedlingMonitorData;
 
 
@@ -428,15 +428,27 @@ if(currentTimerRecord.second==0){
     display2.showNumberDecEx(dei, (0x80 >> 1), false);
   }
 
-  if( Serial.available() != 0) {
+   if( Serial.available() != 0) {
 		String command = Serial.readString();
     Serial.print(F("command="));
     Serial.println(command);
 		if(command.startsWith("Ping")){
 			Serial.println(F("Ok-Ping"));
-    }else if(command.startsWith("ConfigWifiSTA")){
+    }else if(command.startsWith("ScanNetworks")){
+      wifiManager.scanNetworks();
+    }else if(command.startsWith("GetWifiStatus")){
+     
+      
+      uint8_t status = wifiManager.getWifiStatus();
+      Serial.print("WifiStatus=");
+      Serial.println(status);
+      
+    
+      Serial.println("Ok-GetWifiStatus");
+
+		}else if(command.startsWith("ConfigWifiSTA")){
       //ConfigWifiSTA#ssid#password
-      //ConfigWifiSTA#MainRouter24##SeedlingMoinitor#
+      //ConfigWifiSTA#MainRouter24##VisualizerTestHome#
       String ssid = generalFunctions.getValue(command, '#', 1);
       String password = generalFunctions.getValue(command, '#', 2);
       String hostname = generalFunctions.getValue(command, '#', 3);
@@ -449,8 +461,173 @@ if(currentTimerRecord.second==0){
       FastLED.show();
       Serial.println("Ok-ConfigWifiSTA");
 
+		}else if(command.startsWith("ConfigWifiAP")){
+      //ConfigWifiAP#soft_ap_ssid#soft_ap_password#hostaname
+      //ConfigWifiAP#pancho5##pancho5
+
+      String soft_ap_ssid = generalFunctions.getValue(command, '#', 1);
+      String soft_ap_password = generalFunctions.getValue(command, '#', 2);
+      String hostname = generalFunctions.getValue(command, '#', 3);
+      
+     bool stat= wifiManager.configWifiAP(soft_ap_ssid,soft_ap_password,hostname);
+     if(stat){
+          leds[0] = CRGB(0, 255, 0); 
+      }else{
+        leds[0] = CRGB(255, 0, 0); 
+      }
+      FastLED.show();
+      Serial.println("Ok-ConfigWifiAP");
+
+		}else if(command.startsWith("GetOperationMode")){
+      uint8_t  switchState = digitalRead(OP_MODE);
+				if (switchState == LOW ){
+            Serial.println(F("PGM"));
+        }else{
+            Serial.println(F("RUN"));
+        }
+    }else if(command.startsWith("SetTime")){
+			//SetTime#24#10#19#4#17#32#00
+       uint8_t  switchState = digitalRead(OP_MODE);
+      if (switchState == LOW ){
+        timeManager.setTime(command);
+			 Serial.println("Ok-SetTime");
+      }else{
+          Serial.println("Failure-SetTime");
+      }
+			
+		}else if(command.startsWith("SetFieldId")){
+			// fieldId= GeneralFunctions::getValue(command, '#', 1).toInt();
+		}else if(command.startsWith("GetTime")){
+			timeManager.printTimeToSerial(currentTimerRecord);
+			Serial.flush();
+			Serial.println("Ok-GetTime");
+			Serial.flush();
+		}else if(command.startsWith("GetCommandCode")){
+			long code =123456;//secretManager.generateCode();
+			//
+			// patch a bug in the totp library
+			// if the first digit is a zero, it
+			// returns a 5 digit number
+			if(code<100000){
+				Serial.print("0");
+				Serial.println(code);
+			}else{
+				Serial.println(code);
+			}
+
+			Serial.flush();
+			delay(delayTime);
+		}else if(command.startsWith("VerifyUserCode")){
+			String codeInString = generalFunctions.getValue(command, '#', 1);
+			long userCode = codeInString.toInt();
+			boolean validCode = true;//secretManager.checkCode( userCode);
+			String result="Failure-Invalid Code";
+			if(validCode)result="Ok-Valid Code";
+			Serial.println(result);
+			Serial.flush();
+			delay(delayTime);
+		}else if(command.startsWith("GetSecret")){
+      uint8_t switchState = digitalRead( OP_MODE );
+      if (switchState == LOW ){
+        //  char secretCode[SHARED_SECRET_LENGTH];
+			    String secretCode = secretManager.readSecret();
+			    Serial.println(secretCode);
+          Serial.println("Ok-GetSecret");
+      }else{
+          Serial.println("Failure-GetSecret");
+      }
+			Serial.flush();
+			delay(delayTime);
+		} else if(command.startsWith("SetSecret")){
+      uint8_t switchState = digitalRead( OP_MODE );
+      if (switchState == LOW ){
+        //SetSecret#IZQWS3TDNB2GK2LO#6#30
+          String secret = generalFunctions.getValue(command, '#', 1);
+          int numberDigits = generalFunctions.getValue(command, '#', 2).toInt();
+          int periodSeconds = generalFunctions.getValue(command, '#', 3).toInt();
+          secretManager.saveSecret(secret, numberDigits, periodSeconds);
+          Serial.println("Ok-SetSecret");
+          Serial.flush();
+          delay(delayTime);
+      }else{
+          Serial.println("Failure-SetSecret");
+      }
+
+			
+		}else if(command=="Flush"){
+			while (Serial.read() >= 0);
+			Serial.println("Ok-Flush");
+			Serial.flush();
+		}else if(command.startsWith("PulseStart")){
+			//inPulse=true;
+			Serial.println("Ok-PulseStart");
+			Serial.flush();
+			delay(delayTime);
+
+		}else if(command.startsWith("PulseFinished")){
+		//	inPulse=false;
+			Serial.println("Ok-PulseFinished");
+			Serial.flush();
+			delay(delayTime);
+
+		}else if(command.startsWith("IPAddr")){
+		//	currentIpAddress = generalFunctions.getValue(command, '#', 1);
+			Serial.println("Ok-IPAddr");
+			Serial.flush();
+			delay(delayTime);
+		}else if(command.startsWith("SSID")){
+			String currentSSID = generalFunctions.getValue(command, '#', 1);
+     wifiManager.setCurrentSSID(currentSSID.c_str());
+			Serial.println("Ok-currentSSID");
+			Serial.flush();
+			delay(delayTime);
+		}else if(command.startsWith("GetIpAddress")){
+			Serial.println(wifiManager.getIpAddress());
+			Serial.println("Ok-GetIpAddress");
+			Serial.flush();
+			delay(delayTime);
+		}else if(command.startsWith("RestartWifi")){
+			wifiManager.restartWifi();
+			Serial.println("Ok-restartWifi");
+			Serial.flush();
+			delay(delayTime);
+		}else if(command.startsWith("HostMode")){
+			Serial.println("Ok-HostMode");
+			Serial.flush();
+			delay(delayTime);
+			isHost=true;
+		}else if(command.startsWith("NetworkMode")){
+			Serial.println("Ok-NetworkMode");
+			Serial.flush();
+			delay(delayTime);
+			isHost=false;
+		} else if(command.startsWith("GetSensorData")){
+			
+
+		//	Serial.print(wiFiManager.getSensorData());
+			Serial.flush();
+			delay(delayTime);
+		}else if (command.startsWith("AsyncData") ){
+			Serial.print("AsyncCycleUpdate#");
+			Serial.println("#") ;
+			Serial.flush();
+			delay(delayTime);
+		}else if (command.startsWith("GetLifeCycleData")){
+			Serial.println("Ok-GetLifeCycleData");
+			Serial.flush();
+		}else if (command.startsWith("GetWPSSensorData")){
+			Serial.println("Ok-GetWPSSensorData");
+			Serial.flush();
+		}else{
+			//
+			// call read to flush the incoming
+			//
+			Serial.println("Failure-Command Not Found-" + command);
+			Serial.flush();
+			delay(delayTime);
 		}
-  }
+
+	}
 }
 
 
