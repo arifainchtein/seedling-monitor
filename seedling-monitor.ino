@@ -10,8 +10,9 @@
 #include <DallasTemperature.h>
 #include "DHTesp.h" 
 #include <SeedlingMonitoringData.h>
-
-
+#include <sha1.h>
+#include <totp.h>
+#include <LoRa.h>
 
 #define dhtPin 4     
 #define UI_CLK 23
@@ -23,6 +24,12 @@
 #define RTC_BATT_VOLT 36
 #define LED_PIN 19
 #define RELAY_PIN 32
+
+int badPacketCount = 0;
+byte msgCount = 0;         // count of outgoing messages
+byte localAddress = 0xFF;  // address of this device
+byte destination = 0xAA;  
+
 int delayTime=10;
 bool loraActive = false;
 bool opmode = false;
@@ -32,13 +39,19 @@ uint8_t secondsSinceLastDataSampling=0;
 PCF8563TimeManager  timeManager( Serial);
 GeneralFunctions generalFunctions;
 Esp32SecretManager secretManager(timeManager);
+SeedlingMonitorCommandData seedlingMonitorCommandData;
+SeedlingMonitorConfigData seedlingMonitorConfigData;
 bool isHost=true;
 SeedlingMonitorData seedlingMonitorData;
+Timer dsUploadTimer(30);
+bool uploadToDigitalStables=false;
+ bool internetAvailable;
+ #define uS_TO_S_FACTOR 60000000 /* Conversion factor for micro seconds to minutes */
 
-
+ uint8_t currentFunctionValue = 10;
 SeedlingMonitoringWifiManager wifiManager(Serial, timeManager, secretManager,seedlingMonitorData);
 bool readDHT=false;
-
+float operatingStatus = 3;
 bool wifiActive=false;
 bool apActive=false;
 long requestTempTime=0;
@@ -96,6 +109,53 @@ void IRAM_ATTR clockTick() {
 
 //
 // end of interrupt functions
+//
+
+//
+// Lora Functions
+//
+void onReceive(int packetSize) {
+  if (packetSize == 0) return;  // if there's no packet, return
+  if (packetSize == sizeof(PanchoCommandData)) {
+    LoRa.readBytes((uint8_t*)&seedlingMonitorCommandData, sizeof(SeedlingMonitorCommandData));
+    long commandcode = seedlingMonitorCommandData.commandcode;
+    bool validCode = secretManager.checkCode(commandcode);
+    if (validCode) {
+
+      //secretManager.saveSleepPingMinutes(rosieConfigData.sleepPingMinutes);
+      //secretManager.saveConfigData(rosieConfigData.fieldId,  stationName );
+
+      int rssi = LoRa.packetRssi();
+      float Snr = LoRa.packetSnr();
+      Serial.println(" Receive seedlingMonitorCommandData: ");
+      Serial.print(" Field Id: ");
+      Serial.print(seedlingMonitorCommandData.fieldId);
+      Serial.print(" commandcode: ");
+      Serial.print(seedlingMonitorCommandData.commandcode);
+
+    } else {
+      Serial.print(" Receive seedlingMonitorCommandData but invalid code: ");
+      Serial.println(commandcode);
+      Serial.print(seedlingMonitorCommandData.fieldId);
+    }
+  } else {
+    badPacketCount++;
+    Serial.print("Received  invalid data seedlingMonitorCommandData data, expected: ");
+    Serial.print(sizeof(SeedlingMonitorCommandData));
+    Serial.print("  received");
+    Serial.println(packetSize);
+  }
+}
+
+void sendMessage() {
+  LoRa.beginPacket();  // start packet
+  LoRa.write((uint8_t*)&seedlingMonitorData, sizeof(SeedlingMonitorData));
+  LoRa.endPacket();  // finish packet and send it
+  msgCount++;        // increment message ID
+}
+
+//
+// End of Lora Functions
 //
 
 int processDisplayValue(String displayURL,struct DisplayData *displayData ){
@@ -246,8 +306,37 @@ for(int i=0;i<NUM_LEDS;i++){
     display2.setSegments(on, 2, 0);
     loraActive = true;
   }
-  delay(2000);
-  FastLED.show();
+   FastLED.show();
+  delay(1000);
+ 
+ 
+
+  display1.clear();
+  display2.clear();
+  
+  seedlingMonitorData.currentFunctionValue = currentFunctionValue;
+
+  //tankAndFlowSensorController.begin(currentFunctionValue);  
+
+  operatingStatus = secretManager.getOperatingStatus();
+  float pingMinutes = secretManager.getSleepPingMinutes();
+  esp_sleep_enable_timer_wakeup(pingMinutes * uS_TO_S_FACTOR);
+
+
+ 
+  seedlingMonitorData.sleepPingMinutes = pingMinutes;
+  seedlingMonitorData.operatingStatus = operatingStatus;
+  String grp = secretManager.getGroupIdentifier();
+  char gprid[16];
+  grp.toCharArray(gprid, 16);
+  strcpy(seedlingMonitorData.groupidentifier,gprid);
+
+  String identifier="SeedlingMonitor";
+  char ty[25];
+  identifier.toCharArray(ty, 25);
+  strcpy(seedlingMonitorData.deviceTypeId,ty);
+
+ seedlingMonitorConfigData.fieldId = secretManager.getFieldId();
 
   wifiManager.start();
    bool stationmode = wifiManager.getStationMode();
@@ -282,12 +371,9 @@ for(int i=0;i<NUM_LEDS;i++){
      setApMode();
   }
   
-    for(int i=0;i<4;i++){
-      ipi = GeneralFunctions::getValue(ipAddress, '.', i).toInt();
-      display1.showNumberDec(ipi, false); 
-      delay(1000);
-    }
+    
   
+  internetAvailable = wifiManager.getInternetAvailable();
 
 	pinMode(RTC_BATT_VOLT, INPUT);
 	pinMode(OP_MODE, INPUT_PULLUP);
@@ -302,24 +388,130 @@ for(int i=0;i<NUM_LEDS;i++){
   }else{
     leds[1] = CRGB(0, 0,0);    
   }
+  leds[2] = CRGB(255, 255, 0); 
+  FastLED.show();
 
   display1.showNumberDec(0, false);
   display2.showNumberDec(0, false);
   requestTempTime = millis(); 
   getTemperature();
   readDHT=true;
+   dsUploadTimer.start();
+Serial.println("Ok-Ready");
 }
+
 
 void loop() {
   // put your main code here, to run repeatedly:
-  if(clockTicked){
-		portENTER_CRITICAL(&mux);
-		clockTicked=false;
-		portEXIT_CRITICAL(&mux);
-		currentTimerRecord  = timeManager.now();
+  if (clockTicked) {
+    portENTER_CRITICAL(&mux);
+    clockTicked = false;
+    portEXIT_CRITICAL(&mux);
+    secondsSinceLastDataSampling++;
+    currentTimerRecord = timeManager.now();
+    wifiManager.setCurrentTimerRecord(currentTimerRecord);
+    seedlingMonitorData.secondsTime=timeManager.getCurrentTimeInSeconds(currentTimerRecord);
+
+    dsUploadTimer.tick();
+    
+    if (currentTimerRecord.second == 0) {
+      //Serial.println(F("new minute"));
+
+      if (currentTimerRecord.minute == 0) {
+        //		Serial.println(F("New Hour"));
+        if (currentTimerRecord.hour == 0) {
+          //	Serial.println(F("New Day"));
+        }
+      }
+    }
   }
 
-  seedlingMonitorData.secondsTime=timeManager.getCurrentTimeInSeconds(currentTimerRecord);
+
+  if(dsUploadTimer.status() && internetAvailable){
+    //char secret[27];
+    String secret = "J5KFCNCPIRCTGT2UJUZFSMQK";
+    leds[2] = CRGB(0, 255, 0);      
+    
+    
+   TOTP totp = TOTP(secret.c_str());
+   char totpCode[7]; //get 6 char code
+   
+   long timeVal=timeManager.getCurrentTimeInSeconds(currentTimerRecord);
+   long code=totp.gen_code(timeVal);
+    Serial.print("timeVal=");
+    Serial.print(timeVal);
+   
+   Serial.print("totp=");
+    Serial.print(code);
+   seedlingMonitorData.dsLastUpload=timeVal;
+   
+    wifiManager.setCurrentToTpCode(code);
+    bool uploadok = wifiManager.uploadDataToDigitalStables();
+    if(uploadok){
+      leds[2] = CRGB(0, 0, 255);  
+    }else{
+      leds[2] = CRGB(255, 0, 0);      
+    }
+    FastLED.show();
+
+      dsUploadTimer.reset();
+    
+  }
+
+   if (secondsSinceLastDataSampling >= seedlingMonitorData.dataSamplingSec) {
+    if (loraActive) {
+      leds[1] = CRGB(0, 255, 0);
+    }
+   
+    
+    FastLED.show();
+  //  tankAndFlowSensorController.process();
+    secondsSinceLastDataSampling = 0;
+
+     tempSensor.requestTemperatures(); // Send the command to get temperatures
+     seedlingMonitorData.temperature = (uint8_t)tempSensor.getTempCByIndex(0);
+    seedlingMonitorData.secondsTime = timeManager.getCurrentTimeInSeconds(currentTimerRecord);
+    //
+    //RTC_BATT_VOLT Voltage
+    //
+    uint8_t samples = 10;
+    float total = 0.0;
+    float average = 0.0;
+    total = 0;
+    for (int x = 0; x < samples; x++) {           // multiple analogue readings for averaging
+      total = total + analogRead(RTC_BATT_VOLT);  // add each value to a total
+    }
+    average = total / samples;
+    float rtcBatVoltage = 3.3 * average / 4095;
+    // Serial.print("rtc average=");
+    // Serial.print(average);
+    // Serial.print(" rtcVoltage=");
+    // Serial.println(rtcBatVoltage);
+    
+    seedlingMonitorData.rtcBatVolt = rtcBatVoltage;
+    seedlingMonitorData.rssi = 0;
+    seedlingMonitorData.snr = 0;
+    String sensorData = "";//getSensorData();
+    //e22ttl.sendMessage(sensorData);
+    wifiManager.setSensorString(sensorData);
+  
+ 
+    //tankAndFlowSensorController.refreshDisplays();
+
+    if (seedlingMonitorData.flowRate > 0) {
+      leds[3] = CRGB(0, 0, 255);
+    } else {
+      leds[3] = CRGB(0, 0, 0);
+    }
+
+    if (loraActive) {
+      sendMessage();
+      leds[1] = CRGB(0, 0, 255);
+      FastLED.show();
+    }
+
+  }
+
 if(currentTimerRecord.second==0){
   for(int i=2;i<NUM_LEDS;i++){
       leds[i] = CRGB(0, 0, 0);
@@ -434,8 +626,13 @@ if(currentTimerRecord.second==0){
     Serial.println(command);
 		if(command.startsWith("Ping")){
 			Serial.println(F("Ok-Ping"));
-    }else if(command.startsWith("ScanNetworks")){
-      wifiManager.scanNetworks();
+    }else if (command.startsWith("SetGroupId")) {
+       String grpId = generalFunctions.getValue(command, '#', 1);
+      secretManager.setGroupIdentifier(grpId);
+      Serial.print(F("set group id to "));
+      Serial.println(grpId);
+      
+      Serial.println(F("Ok-SetGroupId"));
     }else if(command.startsWith("GetWifiStatus")){
      
       
@@ -631,6 +828,22 @@ if(currentTimerRecord.second==0){
 }
 
 
+void setStationMode(String ipAddress) {
+  Serial.println("settting Station mode, address ");
+    Serial.println(ipAddress);
+  leds[0] = CRGB(0, 0, 255);
+  FastLED.show();
+  const uint8_t ip[] = {
+    SEG_F | SEG_E,                         // I
+    SEG_F | SEG_G | SEG_A | SEG_B | SEG_E  // P
+  };
+  uint8_t ipi;
+  for (int i = 0; i < 4; i++) {
+    ipi = GeneralFunctions::getValue(ipAddress, '.', i).toInt();
+    display1.showNumberDec(ipi, false);
+    delay(1000);
+  }
+}
 
 void setApMode() {
 
@@ -666,24 +879,6 @@ void setApMode() {
   } else {
     leds[1] = CRGB(255, 0, 0);
   }
-
+    
   FastLED.show();
-}
-
-void setStationMode(String ipAddress) {
-  wifiActive=true;
-Serial.println("settting Station mode, address ");
-    Serial.println(ipAddress);
-  leds[0] = CRGB(0, 0, 255);
-  FastLED.show();
-  const uint8_t ip[] = {
-    SEG_F | SEG_E,                         // I
-    SEG_F | SEG_G | SEG_A | SEG_B | SEG_E  // P
-  };
-  uint8_t ipi;
-  for (int i = 0; i < 4; i++) {
-    ipi = GeneralFunctions::getValue(ipAddress, '.', i).toInt();
-    display1.showNumberDec(ipi, false);
-    delay(1000);
-  }
 }
