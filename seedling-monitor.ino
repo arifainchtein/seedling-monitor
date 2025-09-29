@@ -539,7 +539,6 @@ void setup() {
 
 
   opmode = digitalRead(OP_MODE);
-  seedlingMonitorData.opMode = opmode;
   if (loraActive) {
     leds[1] = CRGB(0, 0, 255);
   } else {
