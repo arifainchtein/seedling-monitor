@@ -84,6 +84,7 @@ String display1TempURL = "http://192.168.1.117/TeleonomeServlet?formName=GetDene
 
 /********************************************************************/
 
+#define TEMPERATURE 27
 #define SENSOR_INPUT_2 18
 #define MIN_HUMIDITY 60
 #define MAX_HUMIDITY 70
@@ -92,9 +93,12 @@ int dhtPin = 5 ;
 // Setup a oneWire instance to communicate with any OneWire devices
 // (not just Maxim/Dallas temperature ICs)
 OneWire oneWire(SENSOR_INPUT_2);
-/********************************************************************/
-// Pass our oneWire reference to Dallas Temperature.
-DallasTemperature tempSensor(&oneWire);
+DallasTemperature outdoorTempSensor(&oneWire);
+
+OneWire oneWire2(TEMPERATURE);
+DallasTemperature microTempSensor(&oneWire2);
+
+
 
 struct DisplayData {
   int value;
@@ -264,9 +268,16 @@ void readSensorData(){
     digitalWrite(RELAY_PIN, LOW);
   }
   
-  tempSensor.requestTemperatures();  // Send the command to get temperatures
-  seedlingMonitorData.temperature = tempSensor.getTempCByIndex(0);
+  microTempSensor.requestTemperatures();  // Send the command to get temperatures
+  seedlingMonitorData.temperature = microTempSensor.getTempCByIndex(0);
   Serial.println(" Outdoor T:" + String(seedlingMonitorData.temperature) );
+
+ outdoorTempSensor.requestTemperatures();  // Send the command to get temperatures
+  seedlingMonitorData.outdoorTemperature = outdoorTempSensor.getTempCByIndex(0);
+  Serial.println(" Outdoor T:" + String(seedlingMonitorData.outdoorTemperature) );
+;
+
+
 
   
     //
@@ -404,9 +415,9 @@ void setup() {
   String deviceshortname="SEED";
   deviceshortname.toCharArray(seedlingMonitorData.deviceshortname, deviceshortname.length() + 1);
   
-  tempSensor.begin();
+  microTempSensor.begin();
   uint8_t address[8];
-  tempSensor.getAddress(address, 0);
+  microTempSensor.getAddress(address, 0);
   for (uint8_t i = 0; i < 8; i++) {
     //if (address[i] < 16) Serial.print("0");
     serialNumber += String(address[i], HEX);
@@ -415,8 +426,8 @@ void setup() {
   Serial.print("serial number:");
   Serial.println(serialNumber);
 
-
-  tempSensor.begin();
+  outdoorTempSensor.begin();
+  microTempSensor.begin();
 
 
   SPI.begin(SCK, MISO, MOSI);
@@ -551,7 +562,7 @@ void setup() {
   display2.showNumberDec(0, false);
   requestTempTime = millis();
   readSensorData();
-  readDHT = true;
+      readDHT = true;
   dsUploadTimer.start();
   Serial.println("Ok-Ready");
 }
