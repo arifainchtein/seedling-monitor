@@ -488,7 +488,7 @@ void setup() {
   //tankAndFlowSensorController.begin(currentFunctionValue);
 
   operatingStatus = secretManager.getOperatingStatus();
-  String grp = secretManager.getGroupIdentifier();
+  String grp = "9slwJcM9";//secretManager.getGroupIdentifier();
   char gprid[16];
   grp.toCharArray(gprid, 16);
   strcpy(seedlingMonitorData.groupidentifier, gprid);
