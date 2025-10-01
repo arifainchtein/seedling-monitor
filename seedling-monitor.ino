@@ -414,6 +414,9 @@ void setup() {
   seedlingMonitorData.secondsTime = timeManager.getCurrentTimeInSeconds(currentTimerRecord);
   String deviceshortname="SEED";
   deviceshortname.toCharArray(seedlingMonitorData.deviceshortname, deviceshortname.length() + 1);
+
+  String devicename="Seedling Monitor";
+  devicename.toCharArray(seedlingMonitorData.devicename, devicename.length() + 1);
   
   microTempSensor.begin();
   uint8_t address[8];
