@@ -787,14 +787,9 @@ void loop() {
       }
     } else if (command.startsWith("SetTime")) {
       //SetTime#24#10#19#4#17#32#00
-      uint8_t switchState = digitalRead(OP_MODE);
-      if (switchState == LOW) {
         timeManager.setTime(command);
         Serial.println("Ok-SetTime");
-      } else {
-        Serial.println("Failure-SetTime");
-      }
-
+    
     } else if (command.startsWith("SetFieldId")) {
       // fieldId= GeneralFunctions::getValue(command, '#', 1).toInt();
     } else if (command.startsWith("GetTime")) {
